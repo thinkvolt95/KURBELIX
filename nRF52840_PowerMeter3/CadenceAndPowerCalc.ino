@@ -50,6 +50,14 @@ void CadencePowerCalc(uint32_t revolutionUs) {
       powerW = 0.0f;
     }
   }
+
+  // ==========================================================
+  // 17.05.2026: Prüfung auf negative Leistung !:
+  // ==========================================================
+  if (powerW < 0.0f) {
+    powerW = 0.0f; 
+  }
+
   previousCadenceRevUs = nowUs;
 
   cumulativeCrankRevs++;

@@ -132,6 +132,15 @@ void setup() {
   logPrintln("DIY Powermeter v3.2 start");
   Wire.begin();
 
+  // --- NEU: LEDs sofort ausschalten um Strom zu sparen ---
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+  digitalWrite(LED_RED, HIGH);
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
+  // -----------------------------------------------------
+
   // Battery measurement and charge-current pin setup for the XIAO board.
   analogReadResolution(12); 
   analogReference(AR_INTERNAL_2_4);
@@ -163,8 +172,9 @@ void setup() {
   // Load persisted tare/calibration before starting BLE service.
   loadFlashValues();
   setupBLE();
+  Bluefruit.autoConnLed(false); // Verhindert, dass die BLE-Bibliothek die LED wieder einschaltet
   lastRevUs = micros();
-  logPrintln("Ready. Commands via UART: 'c'=calib, 't'=tare, 'm <kg>'=custom calib.");
+  logPrintln("Ready. Commands via UART: 'c'=calib, 't'=tare, 'm <kg>'=custom calib, 'k <wert>'=set scale.");
 }
 
 void loop() {
@@ -192,6 +202,36 @@ void loop() {
     if (detectRevolution(sampleMicros, degZ)) {
       CadencePowerCalc(revolutionTimestampUs);
     }
+    // ==========================================================
+    // NEU: STILLSTANDS-CHECK HIER EINFÜGEN
+    // ==========================================================
+    else {
+      // Wenn seit mehr als 2 Sekunden (2.000.000 µs) keine Umdrehung erkannt wurde
+      // UND das System nach dem Start mindestens einmal gefahren ist (previousCadenceRevUs != 0)
+      if (previousCadenceRevUs != 0 && (micros() - lastRevUs > 2000000)) {
+        static unsigned long lastZeroSend = 0;
+        
+        // Sende maximal einmal pro Sekunde (1000 ms) eine 0-Watt-Nachricht,
+        // um den Bluetooth-Stack des nRF52840 nicht zu überlasten.
+        if (millis() - lastZeroSend > 1000) {
+          lastZeroSend = millis();
+          
+          // Berechne die aktuelle BLE-Event-Zeit (Standard im CP-Profil)
+          uint16_t currentEventTime = (uint16_t)(((uint64_t)micros() * 1024ULL) / 1000000ULL);
+          
+          // Sende 0 Watt und 0 RPM an den Garmin
+          sendCyclingPowerMeasurement(0, cumulativeCrankRevs, currentEventTime);
+          
+          // Setze die Drehmoment-Akkumulatoren zurück, damit beim Wiederantreten
+          // keine alten "Reste" in der Berechnung hängen.
+          sumTorqueNm = 0.0f;
+          torqueSampleCount = 0;
+        }
+      }
+    }
+    // ==========================================================
+    // ENDE NEU
+    // ==========================================================
   }
 
   if ((micros() - lastRevUs) > (SLEEP_TIMEOUT_MS * 1000UL) && !calibrationActive) {

@@ -59,7 +59,41 @@ void processUARTCommand(String cmd) {
     } else {
       logPrintln("Usage: m <mass_kg>");
     }
-  } 
+  }
+  // ==========================================================
+  // NEU: KALIBRIERFAKTOR DIREKT EINGEBEN (Befehl 'k')
+  // ==========================================================
+  else if (cmd.startsWith("k")) {
+    String valStr = cmd.substring(1);
+    valStr.trim();
+
+    // Wenn eine Zahl nach dem 'k' übergeben wurde (z.B. k 512.34)
+    if (valStr.length() > 0) {
+      float newScaleFactor = valStr.toFloat();
+
+      // Sicherheits-Check gegen versehentliche Division durch 0 im Code
+      if (fabs(newScaleFactor) > 1e-6f) {
+        scaleFactor_counts_per_N = newScaleFactor;
+        
+        logPrint("Neuer Kalibrierfaktor gesetzt: ");
+        logPrintln(String(scaleFactor_counts_per_N, 4));
+
+        // Schreibt den Wert direkt in die "/calibration.txt" im Flash
+        saveCalibration(); 
+        logPrintln("Kalibrierung erfolgreich im Flash gespeichert.");
+      } else {
+        logPrintln("Fehler: Ungueltiger Faktor (nahe 0).");
+      }
+    } 
+    // Wenn nur 'k' ohne Zahl eingegeben wurde, zeigen wir den aktuellen Wert an
+    else {
+      logPrint("Aktueller Kalibrierfaktor: ");
+      logPrintln(String(scaleFactor_counts_per_N, 4));
+    }
+  }
+  // ==========================================================
+  // ENDE NEU
+  // ==========================================================
   else if (cmd.equalsIgnoreCase("dfu")) { 
     NRF_POWER->GPREGRET = 0xA8; 
     NVIC_SystemReset(); 

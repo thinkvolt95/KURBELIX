@@ -47,7 +47,7 @@ static void indicateControlPointResponse(uint16_t conn_hdl,
 
 void setupBLE() {
   Bluefruit.begin(1, 0);  // Peripheral only
-  Bluefruit.autoConnLed(true);
+  Bluefruit.autoConnLed(false);
   Bluefruit.setTxPower(0);
   Bluefruit.setName("DIY-Powermeter");
 
