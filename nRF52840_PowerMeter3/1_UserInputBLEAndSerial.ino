@@ -5,8 +5,7 @@ volatile bool uartCommandPending = false;
 void uartRXWriteCallback(uint16_t conn_hdl,
                          BLECharacteristic* chr,
                          uint8_t* data,
-                         uint16_t len)
-{
+                         uint16_t len) {
   if (len == 0) return;
 
   // Append the latest BLE write to the command buffer.
@@ -38,19 +37,17 @@ void serviceUARTCommands() {
 // Handle calibration, tare and maintenance commands.
 void processUARTCommand(String cmd) {
   cmd.trim();
-  logPrint("UART command received: "); 
+  logPrint("UART command received: ");
   logPrintln(cmd);
 
   if (cmd.equalsIgnoreCase("c")) {
     runCalibration(10.0f);
-  } 
-  else if (cmd.equalsIgnoreCase("t")) {
+  } else if (cmd.equalsIgnoreCase("t")) {
     doTare(true);
     doTareGyro();
     logPrint("Garmin offset value = ");
     logPrintln(String(getGarminDisplayedOffset()));
-  } 
-  else if (cmd.startsWith("m")) {
+  } else if (cmd.startsWith("m")) {
     String massStr = cmd.substring(1);
     massStr.trim();
     float kg = massStr.toFloat();
@@ -60,46 +57,42 @@ void processUARTCommand(String cmd) {
       logPrintln("Usage: m <mass_kg>");
     }
   }
-  // ==========================================================
-  // NEU: KALIBRIERFAKTOR DIREKT EINGEBEN (Befehl 'k')
-  // ==========================================================
+
+  //Write Calibration factor via UART command
   else if (cmd.startsWith("k")) {
     String valStr = cmd.substring(1);
     valStr.trim();
 
-    // Wenn eine Zahl nach dem 'k' übergeben wurde (z.B. k 512.34)
+    //If a number is provided after "k"
     if (valStr.length() > 0) {
       float newScaleFactor = valStr.toFloat();
 
-      // Sicherheits-Check gegen versehentliche Division durch 0 im Code
+      //Check for division through 0
       if (fabs(newScaleFactor) > 1e-6f) {
         scaleFactor_counts_per_N = newScaleFactor;
-        
-        logPrint("Neuer Kalibrierfaktor gesetzt: ");
+
+        logPrint("New calibration factor: ");
         logPrintln(String(scaleFactor_counts_per_N, 4));
 
-        // Schreibt den Wert direkt in die "/calibration.txt" im Flash
-        saveCalibration(); 
-        logPrintln("Kalibrierung erfolgreich im Flash gespeichert.");
+        // Writes the value into "/calibration.txt"
+        saveCalibration();
+        logPrintln("Calibration saved to flash");
       } else {
-        logPrintln("Fehler: Ungueltiger Faktor (nahe 0).");
+        logPrintln("Error: Wrong value");
       }
-    } 
-    // Wenn nur 'k' ohne Zahl eingegeben wurde, zeigen wir den aktuellen Wert an
+    }
+    //Show actual calibration factor
     else {
-      logPrint("Aktueller Kalibrierfaktor: ");
+      logPrint("Actual calibration factor: ");
       logPrintln(String(scaleFactor_counts_per_N, 4));
     }
   }
-  // ==========================================================
-  // ENDE NEU
-  // ==========================================================
-  else if (cmd.equalsIgnoreCase("dfu")) { 
-    NRF_POWER->GPREGRET = 0xA8; 
-    NVIC_SystemReset(); 
-    } 
-  else {
-    logPrint("Unknown UART command: "); 
+
+  else if (cmd.equalsIgnoreCase("dfu")) {
+    NRF_POWER->GPREGRET = 0xA8;
+    NVIC_SystemReset();
+  } else {
+    logPrint("Unknown UART command: ");
     logPrintln(cmd);
   }
 }

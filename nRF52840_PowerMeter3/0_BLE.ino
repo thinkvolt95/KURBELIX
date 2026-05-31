@@ -13,12 +13,13 @@ static const uint8_t CPS_RESPONSE_INVALID_PARAMETER = 0x03;
 static const uint8_t CPS_RESPONSE_OPERATION_FAILED = 0x04;
 
 BLECharacteristic cpMeasurementChar = BLECharacteristic(0x2A63);
-BLECharacteristic cpFeatureChar     = BLECharacteristic(0x2A65);
+BLECharacteristic cpVectorChar = BLECharacteristic(0x2A64);  //Needed for --> Cycling Power Vector
+BLECharacteristic cpFeatureChar = BLECharacteristic(0x2A65);
 BLECharacteristic cpControlPointChar = BLECharacteristic(0x2A66);
 
 static volatile bool cpControlPointPending = false;
 static uint16_t cpPendingConnHdl = BLE_CONN_HANDLE_INVALID;
-static uint8_t cpPendingData[20] = {0};
+static uint8_t cpPendingData[20] = { 0 };
 static uint16_t cpPendingLen = 0;
 
 
@@ -51,7 +52,7 @@ void setupBLE() {
   Bluefruit.setTxPower(0);
   Bluefruit.setName("DIY-Powermeter");
 
-  Bluefruit.Periph.setConnInterval(6, 12);   // 7.5–15 ms
+  Bluefruit.Periph.setConnInterval(6, 12);  // 7.5–15 ms
   Bluefruit.Periph.setConnSlaveLatency(0);
   Bluefruit.Periph.setConnSupervisionTimeout(400);
 
@@ -63,17 +64,26 @@ void setupBLE() {
   cpMeasurementChar.setFixedLen(8);
   cpMeasurementChar.begin();
 
+  // Add Cycling Power Vector
+  cpVectorChar.setProperties(CHR_PROPS_NOTIFY);
+  cpVectorChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+  cpVectorChar.setFixedLen(19);  // Fixed Lenght: 1 + 2 + 2 + 2 + (6 * 2) = 19 Bytes
+  cpVectorChar.begin();
+
   cpFeatureChar.setProperties(CHR_PROPS_READ);
   cpFeatureChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
   cpFeatureChar.setFixedLen(4);
   cpFeatureChar.begin();
 
   uint32_t features =
-  (1UL << 3) |   // Crank Revolution Data Supported
-  (1UL << 9) |   // Offset Compensation Supported
-  (1UL << 12);   // Crank Length Adjustment Supported
+    (1UL << 3) |   // Bit 3: Crank Revolution Data Supported
+    (1UL << 5) |   // Bit 5: Extreme Angles Supported --> Cycling Power Vector
+    (1UL << 9) |   // Bit 9: Offset Compensation Supported
+    (1UL << 12) |  // Bit 12: Crank Length Adjustment Supported
+    (1UL << 16) |  // Bit 16: Sensor Measurement Context (1 = Torque based) --> Cycling Power Vector
+    (1UL << 17);   // Bit 17: Instantaneous Measurement Direction Supported --> Cycling Power Vector
 
-  cpFeatureChar.write((uint8_t*)&features, 4);
+  cpFeatureChar.write(&features, sizeof(features));
 
   // Control Point is used by head units for zero-offset requests.
   cpControlPointChar.setProperties(CHR_PROPS_WRITE | CHR_PROPS_INDICATE);
@@ -88,7 +98,7 @@ void setupBLE() {
   sensorLocationChar.setFixedLen(1);
   sensorLocationChar.begin();
 
-  uint8_t location = 0x05; // Left Crank (see https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.sensor_location.xml)
+  uint8_t location = 0x05;  // Left Crank (see https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.sensor_location.xml)
   sensorLocationChar.write(&location, 1);
 
   // Battery Service
@@ -128,13 +138,12 @@ void setupBLE() {
   Bluefruit.Advertising.setInterval(32, 244);
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);
-
 }
 
 void sendCyclingPowerMeasurement(int16_t powerWatts,
                                  uint16_t cumulativeCrankRevs,
                                  uint16_t lastCrankEventTime) {
-  uint8_t buf[8] = {0};
+  uint8_t buf[8] = { 0 };
 
   // Flags: crank revolution data present (bit 5).
   buf[0] = 0x20;
@@ -157,8 +166,7 @@ void sendCyclingPowerMeasurement(int16_t powerWatts,
 void cpControlPointWriteCallback(uint16_t conn_hdl,
                                  BLECharacteristic* chr,
                                  uint8_t* data,
-                                 uint16_t len)
-{
+                                 uint16_t len) {
   if (len < 1) return;
 
   uint16_t copyLen = (len > sizeof(cpPendingData)) ? sizeof(cpPendingData) : len;
@@ -168,8 +176,7 @@ void cpControlPointWriteCallback(uint16_t conn_hdl,
   cpControlPointPending = true;
 }
 
-void serviceCyclingPowerControlPoint()
-{
+void serviceCyclingPowerControlPoint() {
   if (!cpControlPointPending) return;
 
   cpControlPointPending = false;
@@ -197,8 +204,7 @@ void serviceCyclingPowerControlPoint()
                                                   : CPS_RESPONSE_INVALID_PARAMETER
     };
     indicateControlPointResponse(conn_hdl, response, sizeof(response));
-  }
-  else if (opcode == CPS_OPCODE_REQUEST_SUPPORTED_SENSOR_LOCATIONS) {
+  } else if (opcode == CPS_OPCODE_REQUEST_SUPPORTED_SENSOR_LOCATIONS) {
     uint8_t response[4] = {
       CPS_OPCODE_RESPONSE_CODE,
       opcode,
@@ -206,8 +212,7 @@ void serviceCyclingPowerControlPoint()
       0x05  // Left Crank
     };
     indicateControlPointResponse(conn_hdl, response, sizeof(response));
-  }
-  else if (opcode == CPS_OPCODE_REQUEST_CRANK_LENGTH) {
+  } else if (opcode == CPS_OPCODE_REQUEST_CRANK_LENGTH) {
     uint8_t response[5] = {
       CPS_OPCODE_RESPONSE_CODE,
       opcode,
@@ -216,8 +221,7 @@ void serviceCyclingPowerControlPoint()
       (uint8_t)((crankLengthHalfMm >> 8) & 0xFF)
     };
     indicateControlPointResponse(conn_hdl, response, sizeof(response));
-  }
-  else if (opcode == CPS_OPCODE_START_OFFSET_COMPENSATION) {
+  } else if (opcode == CPS_OPCODE_START_OFFSET_COMPENSATION) {
     int16_t garminOffset = doGarminOffsetCompensation();
 
     uint8_t response[5] = {
@@ -228,8 +232,7 @@ void serviceCyclingPowerControlPoint()
       (uint8_t)((garminOffset >> 8) & 0xFF)
     };
     indicateControlPointResponse(conn_hdl, response, sizeof(response));
-  }
-  else {
+  } else {
     uint8_t response[3] = {
       CPS_OPCODE_RESPONSE_CODE,
       opcode,

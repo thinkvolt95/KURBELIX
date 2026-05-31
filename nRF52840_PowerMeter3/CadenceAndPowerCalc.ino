@@ -9,8 +9,7 @@ void CadencePowerCalc(uint32_t revolutionUs) {
   lastRevUs = revolutionUs;
 
   // Average all torque samples collected since the previous revolution.
-  float avgTorque = (torqueSampleCount > 0) ? 
-                    (sumTorqueNm / torqueSampleCount) : 0.0f;
+  float avgTorque = (torqueSampleCount > 0) ? (sumTorqueNm / torqueSampleCount) : 0.0f;
 
   logPrint("torqueSampleCount= ");
   logPrint(torqueSampleCount);
@@ -28,10 +27,10 @@ void CadencePowerCalc(uint32_t revolutionUs) {
   float powerW = 0.0f;
 
   if (previousCadenceRevUs != 0) {
-    dt = (nowUs - previousCadenceRevUs) / 1000000.0f;   // seconds
+    dt = (nowUs - previousCadenceRevUs) / 1000000.0f;  // seconds
 
     // Clamp to a plausible upper cadence limit.
-    if (dt < 0.2f) dt = 0.2f;   // max 300 rpm
+    if (dt < 0.2f) dt = 0.2f;  // max 300 rpm
 
     cadence_rpm = 60.0f / dt;
 
@@ -51,11 +50,9 @@ void CadencePowerCalc(uint32_t revolutionUs) {
     }
   }
 
-  // ==========================================================
-  // 17.05.2026: Prüfung auf negative Leistung !:
-  // ==========================================================
+  //Cecck for negative power output (leads to 65xxx values on Garmin)
   if (powerW < 0.0f) {
-    powerW = 0.0f; 
+    powerW = 0.0f;
   }
 
   previousCadenceRevUs = nowUs;
@@ -66,10 +63,9 @@ void CadencePowerCalc(uint32_t revolutionUs) {
   lastCrankEventTime = (uint16_t)(((uint64_t)nowUs * 1024ULL) / 1000000ULL);
 
   sendCyclingPowerMeasurement(
-      (int16_t)powerW,
-      cumulativeCrankRevs,
-      lastCrankEventTime
-  );
+    (int16_t)powerW,
+    cumulativeCrankRevs,
+    lastCrankEventTime);
 
   // Start a fresh averaging window for the next crank revolution.
   sumTorqueNm = 0.0f;
@@ -79,4 +75,26 @@ void CadencePowerCalc(uint32_t revolutionUs) {
   logPrint(cadence_rpm, 1);
   logPrint(" rpm  Power=");
   logPrintln(powerW, 1);
+}
+
+void checkStandstill() {
+  // If no rotation has been detected for more than 2 seconds (2,000,000 µs)
+  // amd the system has been ridden at least once since startup (previousCadenceRevUs != 0)
+  if (previousCadenceRevUs != 0 && (micros() - lastRevUs > 2000000)) {
+    static unsigned long lastZeroSend = 0;
+
+    // Send a 0-watt message a maximum of once per second (1000 ms)
+    if (millis() - lastZeroSend > 1000) {
+      lastZeroSend = millis();
+
+      // Calculate the current BLE event time (standard in the Cycling Power profile)
+      uint16_t currentEventTime = (uint16_t)(((uint64_t)micros() * 1024ULL) / 1000000ULL);
+
+      // send 0 watt message
+      sendCyclingPowerMeasurement(0, cumulativeCrankRevs, currentEventTime);
+
+      sumTorqueNm = 0.0f;
+      torqueSampleCount = 0;
+    }
+  }
 }
